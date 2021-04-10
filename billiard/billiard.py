@@ -162,9 +162,11 @@ class Billiard:
     #       PLOTTING ENERGIES        #
     ##################################
 
-    def plot_e_energies(self):
+    def plot_e_energies(self, log=False):
         plt.scatter(range(len(self.e_eigenvals)), self.e_eigenvals, s=6, color="black")
-        plt.yscale("log")
+        
+        if log:
+            plt.yscale("log")
         plt.show()
 
     ####################
