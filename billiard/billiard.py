@@ -1,3 +1,4 @@
+from re import template
 import sympy as sym
 import numpy as np
 from scipy.integrate import quad
@@ -22,8 +23,13 @@ class Billiard:
         self.A = self.get_area()
         self.L = self.get_circumfrence()
 
-        self.phi_m = sym.sqrt(2.0/self.a1)*sym.sin(sym.pi * self.m1 * self.x1) * sym.sqrt(2.0/self.a2) * sym.sin(sym.pi * self.m2 * self.x2)
-        self.phi_n = sym.sqrt(2.0/self.a1)*sym.sin(sym.pi * self.n1 * self.x1) * sym.sqrt(2.0/self.a2) * sym.sin(sym.pi * self.n2 * self.x2)
+        self.phi_m = sym.sqrt(2.0/self.a1)*sym.sin(sym.pi * self.m1 * self.x1 / self.a1) * sym.sqrt(2.0/self.a2) * sym.sin(sym.pi * self.m2 * self.x2 / self.a2)
+        self.phi_n = sym.sqrt(2.0/self.a1)*sym.sin(sym.pi * self.n1 * self.x1 / self.a1) * sym.sqrt(2.0/self.a2) * sym.sin(sym.pi * self.n2 * self.x2 / self.a2)
+
+        if self.shape == 'circle':
+            # origin needs to be shifted to center of rectangle
+            self.phi_m = self.phi_m.subs([(self.x1, self.x1 - self.a1/2), (self.x2, self.x2 - self.a2/2)])
+            self.phi_n = self.phi_n.subs([(self.x1, self.x1 - self.a1/2), (self.x2, self.x2 - self.a2/2)])
 
         # for calculating the wavefunction later
         self.phi = sym.lambdify([self.x1, self.x2, self.m1, self.m2], self.phi_m)
@@ -39,10 +45,42 @@ class Billiard:
             self.v_analytic = sym.integrate(self.phi_m*self.phi_n, (self.x2, sym.sqrt(1-self.x1**2), 1))
             self.v_analytic = sym.lambdify([self.x1, self.m1, self.m2, self.n1, self.n2], self.v_analytic)
 
+        if self.shape == 'circle':
+            v_analytic_top = sym.integrate(self.phi_m*self.phi_n, (self.x2, sym.sqrt(1-self.x1**2), 1))
+            v_analytic_bottom = sym.integrate(self.phi_m*self.phi_n, (self.x2, -1, -sym.sqrt(1-self.x1**2)))
+
+            self.v_analytic = v_analytic_top + v_analytic_bottom
+            self.v_analytic = sym.lambdify([self.x1, self.m1, self.m2, self.n1, self.n2],self.v_analytic)
+
+            self.v_analytic_top = sym.lambdify([self.x1, self.m1, self.m2, self.n1, self.n2], v_analytic_top)
+            self.v_analytic_bottom = sym.lambdify([self.x1, self.m1, self.m2, self.n1, self.n2], v_analytic_bottom)
+
+
     # numerical integral
     def vnm(self, m1_, m2_, n1_, n2_):
         if self.shape == 'quartercircle':
             return quad(lambda x: self.v_analytic(x, m1_, m2_, n1_, n2_), 0, 1)[0]
+        
+        elif self.shape == 'circle':
+            # split integral for faster computation
+            temp1 = quad(lambda x: self.v_analytic_top(x, m1_, m2_, n1_, n2_), 0, 1)[0]
+
+            if (m1_ + m2_+ n1_ + n2_ )%2 == 1:
+                temp2 = quad(lambda x: self.v_analytic_bottom(x, m1_, m2_, n1_, n2_), -1, 0)[0]
+            
+            elif (m1_ + n1_)%2 == 1:
+                temp2 = quad(lambda x: self.v_analytic_top(x, m1_, m2_, n1_, n2_), -1, 0)[0]
+            
+            else:
+                temp2 = quad(lambda x: self.v_analytic_bottom(x, m1_, m2_, n1_, n2_), 0, 1)[0]
+
+            # above code uses some symmetries in the following 4 integrals
+            #temp1 = quad(lambda x: self.v_analytic_top(x, m1_, m2_, n1_, n2_), -1, 0)[0]
+            #temp2 = quad(lambda x: self.v_analytic_top(x, m1_, m2_, n1_, n2_), 0, 1)[0]
+            #temp3 = quad(lambda x: self.v_analytic_bottom(x, m1_, m2_, n1_, n2_), -1, 0)[0]
+            #temp4 = quad(lambda x: self.v_analytic_bottom(x, m1_, m2_, n1_, n2_), 0, 1)[0]
+
+            return 2*(temp1 + temp2)
 
     def generate_v_matrix(self):
         # check if file already exists:
@@ -87,15 +125,15 @@ class Billiard:
             
 
 
-    ####################
-    #    HAMILTONIAN   #
-    ####################
+    ################################
+    #    HAMILTONIAN & EIGENSTUFF  #
+    ################################
 
     def generate_hamiltonian(self):
         self.hamiltonian = np.zeros([self.M0, self.M0])
 
         for i,m in enumerate(self.pairs):
-            self.hamiltonian[i, i] = np.pi ** 2 * ((m[0]/self.a1) ** 2 + (m[1]/self.a2) ** 2)
+            self.hamiltonian[i, i] = np.pi ** 2 * (m[0] ** 2 + (self.a1*m[1]/self.a2) ** 2)
 
         self.hamiltonian = self.hamiltonian + self.V0 * self.v_matrix
 
@@ -106,8 +144,10 @@ class Billiard:
         # sort based on ascending eigenvals
         self.eigenvecs = np.array([vec for _, vec in sorted(zip(self.eigenvals, self.eigenvecs))])
 
-        # multiply with area of billiard & use units like in paper
-        self.e_eigenvals = np.sort(self.eigenvals * self.A/(4*np.pi))
+        # get eigenvals in different units to match Kaufman, Kosztin, Schulten Paper
+        self.kn_evals = np.sort(np.sqrt(self.eigenvals)/self.a1)
+
+        self.En_evals = np.sort(self.kn_evals**2 * self.A/(4*np.pi)) / self.a1**2
     
 
     ##################################
@@ -119,11 +159,15 @@ class Billiard:
             self.X1 = np.linspace(0, 1, x_pixels)
             self.X2 = np.linspace(0, 1, y_pixels)
 
-            self.wavefunction = np.zeros([x_pixels, y_pixels])
+        elif self.shape == 'circle':
+            self.X1 = np.linspace(-1, 1, x_pixels)
+            self.X2 = np.linspace(-1, 1, y_pixels)
 
-            for i, x in enumerate(self.X1):
-                for j, y in enumerate(self.X2):
-                    self.wavefunction[i, j] = abs(self.psi(n, x,y))
+        self.wavefunction = np.zeros([x_pixels, y_pixels])
+        for i, x in enumerate(self.X1):
+            for j, y in enumerate(self.X2):
+                self.wavefunction[i, j] = abs(self.psi(n, x,y))
+                
 
     def plot_wavefunction(self, n, x_pixels, y_pixels):
 
@@ -142,6 +186,20 @@ class Billiard:
             plt.ylim([-padding,x_pixels + padding])
             plt.xlim([-padding,y_pixels + padding])
             plt.axis("off")
+        
+        elif self.shape == 'circle': 
+            # plot circle
+            X = np.linspace(0, x_pixels, 200)
+            plt.plot(X, y_pixels//2 +x_pixels//2 * np.sqrt(1- ((X-x_pixels//2)/(x_pixels//2))**2), color="black")
+            plt.plot(X, y_pixels//2 -x_pixels//2 * np.sqrt(1- ((X-x_pixels//2)/(x_pixels//2))**2), color="black")
+
+            # plot wavefunction
+            plt.imshow(self.wavefunction, cmap='gray_r', origin="lower", interpolation="bicubic")
+            plt.ylim([-padding,x_pixels + padding])
+            plt.xlim([-padding,y_pixels + padding])
+            plt.axis("off")
+
+            plt.title("n = {}".format(n+1))
 
         plt.show()
 
@@ -163,7 +221,7 @@ class Billiard:
     ##################################
 
     def plot_e_energies(self, log=False):
-        plt.scatter(range(len(self.e_eigenvals)), self.e_eigenvals, s=6, color="black")
+        plt.scatter(range(len(self.En_evals)), self.En_evals, s=6, color="black")
         
         if log:
             plt.yscale("log")
@@ -182,9 +240,15 @@ class Billiard:
         if self.shape == 'quartercircle':
             return np.pi / 4
 
+        elif self.shape == 'circle':
+            return np.pi
+
     def get_circumfrence(self) -> float:
         if self.shape == 'quartercircle':
             return 2 + np.pi/2
+        
+        elif self.shape == 'circle':
+            return 2*np.pi
 
     # generates list of i_max positive integer pairs
     def generate_integer_pairs(self):
