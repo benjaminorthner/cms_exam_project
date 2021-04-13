@@ -62,25 +62,11 @@ class Billiard:
             return quad(lambda x: self.v_analytic(x, m1_, m2_, n1_, n2_), 0, 1)[0]
         
         elif self.shape == 'circle':
-            # split integral for faster computation
-            temp1 = quad(lambda x: self.v_analytic_top(x, m1_, m2_, n1_, n2_), 0, 1)[0]
-
-            if (m1_ + m2_+ n1_ + n2_ )%2 == 1:
-                temp2 = quad(lambda x: self.v_analytic_bottom(x, m1_, m2_, n1_, n2_), -1, 0)[0]
-            
-            elif (m1_ + n1_)%2 == 1:
-                temp2 = quad(lambda x: self.v_analytic_top(x, m1_, m2_, n1_, n2_), -1, 0)[0]
-            
+            if (m1_ + m2_+ n1_ + n2_ )%2 == 0 and (m1_ + n1_)%2 == 0:
+                # integral in all four corners is the same (only sign may differ)
+                return 4*quad(lambda x: self.v_analytic_top(x, m1_, m2_, n1_, n2_), 0, 1)[0]
             else:
-                temp2 = quad(lambda x: self.v_analytic_bottom(x, m1_, m2_, n1_, n2_), 0, 1)[0]
-
-            # above code uses some symmetries in the following 4 integrals
-            #temp1 = quad(lambda x: self.v_analytic_top(x, m1_, m2_, n1_, n2_), -1, 0)[0]
-            #temp2 = quad(lambda x: self.v_analytic_top(x, m1_, m2_, n1_, n2_), 0, 1)[0]
-            #temp3 = quad(lambda x: self.v_analytic_bottom(x, m1_, m2_, n1_, n2_), -1, 0)[0]
-            #temp4 = quad(lambda x: self.v_analytic_bottom(x, m1_, m2_, n1_, n2_), 0, 1)[0]
-
-            return 2*(temp1 + temp2)
+                return 0
 
     def generate_v_matrix(self):
         # check if file already exists:
