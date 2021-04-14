@@ -247,11 +247,25 @@ class Billiard:
     #       PLOTTING ENERGIES        #
     ##################################
 
-    def plot_e_energies(self, log=False):
-        plt.scatter(range(len(self.En_evals)), self.En_evals, s=6, color="black")
+    def plot_e_energies(self, lim = None, log=False, save=False, filename=None):
+
+        if lim == None:
+            lim = self.M0
+
+        plt.scatter(range(len(self.En_evals[:lim])), self.En_evals[:lim], s=6, color="black")
         
         if log:
             plt.yscale("log")
+
+        plt.ylabel(r"$E_n$")
+        plt.xlabel(r"$n$")
+
+
+        if save:
+            if filename == None:
+                filename = "plots/En_{}_{}.png".format(self.shape, lim)
+            plt.savefig(filename, dpi=200, bbox_inches='tight')
+
         plt.show()
 
     ####################
