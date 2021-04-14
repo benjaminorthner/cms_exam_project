@@ -4,13 +4,24 @@ import numpy as np
 from scipy.integrate import quad
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from matplotlib import cm
 import copy
 import time
 import os
 
 
 class Billiard:
-    # shape = "quartercircle", "circle"
+    '''
+    USES THE "EXPANSION METHOD FOR STATIONARY STATES OF QUANTUM BILLIARDS"
+    TO COMPUTE EIGENERGIES AND EIGENSTATES OF QUANTUM BILLIARD SYSTEMS
+
+    Implementation of the algorithm described in: https://aapt.scitation.org/doi/10.1119/1.19208
+
+    Note: the stadium shape has not been fully generalised for arbitrary dimensions
+    a2 = 2 is required
+    '''
+
+    # shape = "quartercircle", "circle", "stadium"
     def __init__(self, shape, a1, a2, M0, V0) -> None:
         self.x1, self.x2 = sym.symbols("x1 x2")
         self.m1, self.m2 = sym.symbols("m1 m2", integer=True, nonzero=True)
@@ -26,7 +37,7 @@ class Billiard:
         self.phi_m = sym.sqrt(2.0/self.a1)*sym.sin(sym.pi * self.m1 * self.x1 / self.a1) * sym.sqrt(2.0/self.a2) * sym.sin(sym.pi * self.m2 * self.x2 / self.a2)
         self.phi_n = sym.sqrt(2.0/self.a1)*sym.sin(sym.pi * self.n1 * self.x1 / self.a1) * sym.sqrt(2.0/self.a2) * sym.sin(sym.pi * self.n2 * self.x2 / self.a2)
 
-        if self.shape == 'circle':
+        if self.shape == 'circle' or self.shape == 'stadium':
             # origin needs to be shifted to center of rectangle
             self.phi_m = self.phi_m.subs([(self.x1, self.x1 - self.a1/2), (self.x2, self.x2 - self.a2/2)])
             self.phi_n = self.phi_n.subs([(self.x1, self.x1 - self.a1/2), (self.x2, self.x2 - self.a2/2)])
@@ -47,13 +58,11 @@ class Billiard:
 
         if self.shape == 'circle':
             v_analytic_top = sym.integrate(self.phi_m*self.phi_n, (self.x2, sym.sqrt(1-self.x1**2), 1))
-            v_analytic_bottom = sym.integrate(self.phi_m*self.phi_n, (self.x2, -1, -sym.sqrt(1-self.x1**2)))
-
-            self.v_analytic = v_analytic_top + v_analytic_bottom
-            self.v_analytic = sym.lambdify([self.x1, self.m1, self.m2, self.n1, self.n2],self.v_analytic)
-
             self.v_analytic_top = sym.lambdify([self.x1, self.m1, self.m2, self.n1, self.n2], v_analytic_top)
-            self.v_analytic_bottom = sym.lambdify([self.x1, self.m1, self.m2, self.n1, self.n2], v_analytic_bottom)
+
+        if self.shape == 'stadium':
+            v_analytic_top = sym.integrate(self.phi_m*self.phi_n, (self.x2, sym.sqrt(1-(self.x1 - (self.a1/2 - 1))**2), 1))
+            self.v_analytic_top = sym.lambdify([self.x1, self.m1, self.m2, self.n1, self.n2], v_analytic_top)
 
 
     # numerical integral
@@ -64,7 +73,14 @@ class Billiard:
         elif self.shape == 'circle':
             if (m1_ + m2_+ n1_ + n2_ )%2 == 0 and (m1_ + n1_)%2 == 0:
                 # integral in all four corners is the same (only sign may differ)
-                return 4*quad(lambda x: self.v_analytic_top(x, m1_, m2_, n1_, n2_), 0, 1)[0]
+                return 4*quad(lambda x: self.v_analytic_top(x, m1_, m2_, n1_, n2_), 0, self.a1/2)[0]
+            else:
+                return 0
+
+        elif self.shape == 'stadium':
+            if (m1_ + m2_+ n1_ + n2_ )%2 == 0 and (m1_ + n1_)%2 == 0:
+                # integral in all four corners is the same (only sign may differ)
+                return 4*quad(lambda x: self.v_analytic_top(x, m1_, m2_, n1_, n2_), self.a1/2 - 1, self.a1/2)[0]
             else:
                 return 0
 
@@ -145,9 +161,9 @@ class Billiard:
             self.X1 = np.linspace(0, 1, x_pixels)
             self.X2 = np.linspace(0, 1, y_pixels)
 
-        elif self.shape == 'circle':
-            self.X1 = np.linspace(-1, 1, x_pixels)
-            self.X2 = np.linspace(-1, 1, y_pixels)
+        elif self.shape == 'circle' or self.shape == 'stadium':
+            self.X1 = np.linspace(-self.a1/2, self.a1/2, x_pixels)
+            self.X2 = np.linspace(-self.a2/2, self.a2/2, y_pixels)
 
         self.wavefunction = np.zeros([x_pixels, y_pixels])
         for i, x in enumerate(self.X1):
@@ -155,11 +171,11 @@ class Billiard:
                 self.wavefunction[i, j] = abs(self.psi(n, x,y))
                 
 
-    def plot_wavefunction(self, n, x_pixels, y_pixels):
+    def plot_wavefunction(self, n, x_pixels, y_pixels, save=False):
 
         self.evalute_wavefunction_grid(n, x_pixels, y_pixels)
 
-        padding = 5
+        padding = 0
 
         if self.shape == 'quartercircle':
             # plot quartercircle
@@ -169,8 +185,8 @@ class Billiard:
 
             # plot wavefuction
             plt.imshow(self.wavefunction, cmap='gray_r', origin="lower", interpolation="bicubic")
-            plt.ylim([-padding,x_pixels + padding])
-            plt.xlim([-padding,y_pixels + padding])
+            plt.xlim([-padding,x_pixels + padding])
+            plt.ylim([-padding,y_pixels + padding])
             plt.axis("off")
         
         elif self.shape == 'circle': 
@@ -181,11 +197,36 @@ class Billiard:
 
             # plot wavefunction
             plt.imshow(self.wavefunction, cmap='gray_r', origin="lower", interpolation="bicubic")
-            plt.ylim([-padding,x_pixels + padding])
-            plt.xlim([-padding,y_pixels + padding])
+            print(self.wavefunction.shape)
+            plt.xlim([-padding,x_pixels + padding])
+            plt.ylim([-padding,y_pixels + padding])
             plt.axis("off")
 
-            plt.title("n = {}".format(n+1))
+        elif self.shape == 'stadium':
+            # plot stadium caps
+            Xleft = np.linspace(0, y_pixels/2, 100)
+            Xright = np.linspace(3*x_pixels/4, x_pixels, 100)
+            # left cap
+            plt.plot(Xleft, y_pixels//2 +y_pixels//2 * np.sqrt(1- ((Xleft-y_pixels//2)/(y_pixels//2))**2), color="black")
+            plt.plot(Xleft, y_pixels//2 -y_pixels//2 * np.sqrt(1- ((Xleft-y_pixels//2)/(y_pixels//2))**2), color="black")
+            # right cap
+            plt.plot(Xright, y_pixels//2 +y_pixels//2 * np.sqrt(1- ((Xright-3*x_pixels//4)/(y_pixels//2))**2), color="black")
+            plt.plot(Xright, y_pixels//2 -y_pixels//2 * np.sqrt(1- ((Xright-3*x_pixels//4)/(y_pixels//2))**2), color="black")
+            # flat parts
+            plt.plot([y_pixels/2, 3*x_pixels/4],[y_pixels, y_pixels], color="black", linewidth=1.5)
+            plt.plot([y_pixels/2, 3*x_pixels/4],[0, 0], color="black", linewidth=1.5)
+
+            # plot wavefunction
+            plt.imshow(self.wavefunction.transpose(), aspect='auto', cmap='gray_r', origin="lower", interpolation="bicubic")
+
+            plt.xlim([-padding,x_pixels + padding])
+            plt.ylim([-padding,y_pixels + padding])
+            plt.axis("off")
+
+        #plt.title("n = {}".format(n+1))
+
+        if save:
+            plt.savefig("plots/WF_{}_{}.png".format(self.shape, n), dpi=100, bbox_inches='tight')
 
         plt.show()
 
@@ -198,7 +239,7 @@ class Billiard:
         ax = fig.add_subplot(111, projection='3d')
 
         X, Y = np.meshgrid(self.X1, self.X2)
-        ax.plot_surface(X,Y, self.wavefunction)
+        ax.plot_surface(X,Y, self.wavefunction, cmap=cm.viridis, linewidth=0, antialiased=True)
         fig.show()
 
         
@@ -229,12 +270,18 @@ class Billiard:
         elif self.shape == 'circle':
             return np.pi
 
+        elif self.shape == 'stadium':
+            return np.pi + self.a2 * (self.a1 -2)
+
     def get_circumfrence(self) -> float:
         if self.shape == 'quartercircle':
             return 2 + np.pi/2
         
         elif self.shape == 'circle':
             return 2*np.pi
+
+        elif self.shape == 'stadium':
+            return 2*(np.pi + (self.a1-2))
 
     # generates list of i_max positive integer pairs
     def generate_integer_pairs(self):
