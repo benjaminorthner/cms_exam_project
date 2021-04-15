@@ -1,3 +1,4 @@
-__pycache__
+*/__pycache__
 presentation
 billiard/plots
+Papers/Timberlake-RMT/*.nb
