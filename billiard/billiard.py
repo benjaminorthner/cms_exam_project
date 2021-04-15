@@ -147,9 +147,9 @@ class Billiard:
         self.eigenvecs = np.array([vec for _, vec in sorted(zip(self.eigenvals, self.eigenvecs))])
 
         # get eigenvals in different units to match Kaufman, Kosztin, Schulten Paper
-        self.kn_evals = np.sort(np.sqrt(self.eigenvals)/self.a1)
+        self.kn = np.sort(np.sqrt(self.eigenvals)/self.a1)
 
-        self.En_evals = np.sort(self.kn_evals**2 * self.A/(4*np.pi)) / self.a1**2
+        self.En = np.sort(self.kn**2 * self.A/(4*np.pi)) / self.a1**2
     
 
     ##################################
@@ -247,12 +247,12 @@ class Billiard:
     #       PLOTTING ENERGIES        #
     ##################################
 
-    def plot_e_energies(self, lim = None, log=False, save=False, filename=None):
+    def plot_spectrum(self, lim = None, log=False, save=False, filename=None):
 
         if lim == None:
             lim = self.M0
 
-        plt.scatter(range(len(self.En_evals[:lim])), self.En_evals[:lim], s=6, color="black")
+        plt.scatter(range(len(self.En[:lim])), self.En[:lim], s=6, color="black")
         
         if log:
             plt.yscale("log")
@@ -268,6 +268,78 @@ class Billiard:
 
         plt.show()
 
+    ##################################
+    #       ANALYSING ENERGIES       #
+    ##################################
+
+    # make average neighbour spacing  = 1
+    def unfold_spectrum(self):
+    
+        self.neighbour_spacings = self.gen_neighbour_spacings(self.En)
+
+        # roughly the first half of the computed eigenvalues are trustworthy (conservative)
+        trim = self.M0 // 2 
+
+        mean_spacing = sum(self.neighbour_spacings[:trim]) / trim
+
+        self.En_unfolded = self.En / mean_spacing
+
+    def plot_unfolded_spectrum(self, lim = None, log=False, save=False, filename=None):
+
+        if lim == None:
+            lim = self.M0
+
+        plt.plot([0,lim],[0,lim], color="orange")
+        plt.plot(range(lim), self.En_unfolded[:lim], color="black")
+        
+        if log:
+            plt.yscale("log")
+
+        plt.ylabel(r"$\epsilon_n$")
+        plt.xlabel(r"$n$")
+
+
+        if save:
+            if filename == None:
+                filename = "plots/En_unfolded_{}_{}.png".format(self.shape, lim)
+            plt.savefig(filename, dpi=200, bbox_inches='tight')
+
+        plt.show()
+
+
+    def plot_spacing_distribution(self, lim = None, bins = 25, plot_GOE=False, plot_Poission=False, save=False, filename=None):
+
+        if lim is None:
+            lim = self.M0 // 2
+            
+        
+        # plot histogram
+        used_bins = plt.hist(self.gen_neighbour_spacings(self.En_unfolded[:lim]), bins=bins, density=True, label=r"$P(s)$", color="firebrick")
+
+        plt.ylabel(r"$P(s)$")
+        plt.xlabel(r"$s$")
+        
+
+        # plotting other distributions
+        spacings = np.linspace(0, used_bins[1][-1], 200)
+
+        if plot_GOE:
+            Pgoe = lambda s: np.pi/2 * s * np.exp(-np.pi * s**2 / 4)        
+            plt.plot(spacings, [Pgoe(s) for s in spacings], label=r"$P_{GOE}(s)$", color="black", linestyle="--")
+
+        if plot_Poission:
+            Ppoission = lambda s: np.exp(-s)
+            plt.plot(spacings, [Ppoission(s) for s in spacings], label=r'$P_{0}(s)$', color="black", linestyle=":")
+        
+        plt.legend()
+
+        # save plot
+        if save:
+            if filename == None:
+                filename = "plots/hist_{}_{}.png".format(self.shape, bins)
+            plt.savefig(filename, dpi=200, bbox_inches='tight')
+
+        plt.show()
     ####################
     # HELPER FUNCTIONS #
     ####################
@@ -276,6 +348,7 @@ class Billiard:
         self.analytic_integral()
         self.generate_v_matrix()
         self.generate_hamiltonian()
+        self.unfold_spectrum()
 
     def get_area(self) -> float:
         if self.shape == 'quartercircle':
@@ -330,3 +403,21 @@ class Billiard:
             psi += self.eigenvecs[n_][i] * self.phi(x1_, x2_, m[0], m[1])
         
         return psi
+    
+    # Not used for now
+    def weyl_formula(self, E):
+        return 1/(4*np.pi) * (self.A + E - self.L*np.sqrt(E))
+
+    # for every element in sorted list calculates the average distance to its 2 closest neighbours
+    def gen_neighbour_spacings(self, list_):
+        
+        temp = np.array([])
+
+        for n in range(1, len(list_) - 1):
+            above = list_[n+1] - list_[n]
+            below = list_[n] - list_[n-1]
+
+            temp = np.append(temp, [(above + below) / 2])
+        
+        return temp
+    
